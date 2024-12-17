@@ -36,9 +36,9 @@ func (s ParcelStore) Get(number int) (Parcel, error) {
 	err := row.Scan(&p.Number, &p.Client, &p.Status, &p.Address, &p.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return p, fmt.Errorf("parcel with number %d not found", number)
+			return Parcel{}, fmt.Errorf("parcel with number %d not found", number)
 		}
-		return p, fmt.Errorf("failed to get parcel: %w", err)
+		return Parcel{}, fmt.Errorf("failed to get parcel: %w", err)
 	}
 
 	return p, nil
@@ -80,40 +80,42 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 }
 
 func (s ParcelStore) SetAddress(number int, address string) error {
-	// Сначала проверяем, что статус посылки - "registered"
-	parcel, err := s.Get(number)
-	if err != nil {
-		return err
-	}
-
-	if parcel.Status != ParcelStatusRegistered {
-		return fmt.Errorf("cannot change address for parcel %d as it is not in 'registered' status", number)
-	}
-
-	query := `UPDATE parcel SET address = ? WHERE number = ?`
-	_, err = s.db.Exec(query, address, number)
+	// Обновляем адрес только если статус 'registered'
+	query := `UPDATE parcel SET address = ? WHERE number = ? AND status = ?`
+	res, err := s.db.Exec(query, address, number, ParcelStatusRegistered)
 	if err != nil {
 		return fmt.Errorf("failed to update address for parcel %d: %w", number, err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check update result for parcel %d: %w", number, err)
+	}
+
+	if affected == 0 {
+		// Значит либо нет такой посылки, либо она не в статусе 'registered'
+		return fmt.Errorf("cannot change address for parcel %d as it does not exist or is not in 'registered' status", number)
 	}
 
 	return nil
 }
 
 func (s ParcelStore) Delete(number int) error {
-	// Сначала проверяем, что статус посылки - "registered"
-	parcel, err := s.Get(number)
-	if err != nil {
-		return err
-	}
-
-	if parcel.Status != ParcelStatusRegistered {
-		return fmt.Errorf("cannot delete parcel %d as it is not in 'registered' status", number)
-	}
-
-	query := `DELETE FROM parcel WHERE number = ?`
-	_, err = s.db.Exec(query, number)
+	// Удаляем строку только если статус 'registered'
+	query := `DELETE FROM parcel WHERE number = ? AND status = ?`
+	res, err := s.db.Exec(query, number, ParcelStatusRegistered)
 	if err != nil {
 		return fmt.Errorf("failed to delete parcel %d: %w", number, err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check delete result for parcel %d: %w", number, err)
+	}
+
+	if affected == 0 {
+		// Значит либо нет такой посылки, либо она не в статусе 'registered'
+		return fmt.Errorf("cannot delete parcel %d as it does not exist or is not in 'registered' status", number)
 	}
 
 	return nil
